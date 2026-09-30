@@ -89,3 +89,89 @@ test("pasos de Luhn: duplica desde la derecha sin contar el verificador", () => 
   ]);
   assert.equal(r.suma, 80);
 });
+
+// ---- Redes regionales, cobranding y redes retiradas ----
+import { MARCAS, marcasCoincidentes } from "../src/tarjeta.ts";
+
+const conVerificador = (cuerpo: string) => cuerpo + digitoVerificador(cuerpo);
+const relleno = (prefijo: string, largo: number) => conVerificador(prefijo.padEnd(largo - 1, "0"));
+
+const REGIONALES: Array<[string, number, string]> = [
+  ["606282", 16, "hipercard"],
+  ["637095", 16, "hiper"],
+  ["589562", 16, "naranja"],
+  ["509000", 16, "elo"],
+  ["2200", 16, "mir"],
+  ["2205", 16, "mir"],
+  ["9792", 16, "troy"],
+  ["5019", 16, "dankort"],
+  ["60400100", 16, "ukrcart"],
+  ["8600", 16, "uzcard"],
+  ["9860", 16, "humo"],
+  ["81", 16, "rupay"],
+  ["31", 19, "tunion"],
+  ["357111", 16, "lankapay"],
+  ["1946", 16, "gpn"],
+  ["506099", 16, "verve"],
+  ["676770", 16, "maestro-uk"],
+  ["1", 15, "uatp"],
+];
+
+for (const [prefijo, largo, id] of REGIONALES) {
+  test(`regional: ${prefijo}... (${largo}) es ${id}`, () => {
+    const r = validarTarjeta(relleno(prefijo, largo));
+    assert.equal(r.valido, true, r.mensaje);
+    assert.equal(r.marca?.id, id);
+    assert.ok(r.mensaje.includes(r.marca!.pais), r.mensaje);
+  });
+}
+
+test("cobranding: Elo dentro del rango Visa lo informa", () => {
+  const r = validarTarjeta(relleno("401178", 16));
+  assert.equal(r.marca?.id, "elo");
+  assert.deepEqual(r.otras.map((m) => m.id), ["visa"]);
+  assert.match(r.mensaje, /también coincide con Visa/);
+});
+
+test("cobranding: Dankort 4571 con Visa, Naranja 527572 con Mastercard", () => {
+  assert.deepEqual(marcasCoincidentes("4571000000000000").map((m) => m.id), ["dankort", "visa"]);
+  assert.deepEqual(marcasCoincidentes("5275720000000000").map((m) => m.id), ["naranja", "mastercard"]);
+});
+
+test("empate de largo: 65 es Discover y menciona Troy y RuPay", () => {
+  const r = validarTarjeta(relleno("65", 16));
+  assert.equal(r.marca?.id, "discover");
+  assert.deepEqual(r.otras.map((m) => m.id).sort(), ["rupay", "troy"]);
+});
+
+test("RuPay-JCB: 3530 es JCB con RuPay como cobranding", () => {
+  assert.deepEqual(marcasCoincidentes("3530000000000000").map((m) => m.id), ["jcb", "rupay"]);
+});
+
+test("Luhn no documentado (Napas): no se exige, pero se informa", () => {
+  const cuerpo = "970400000000000";
+  const malo = cuerpo + ((digitoVerificador(cuerpo) + 1) % 10);
+  const r = validarTarjeta(malo);
+  assert.equal(r.valido, true, r.mensaje);
+  assert.equal(r.marca?.id, "napas");
+  assert.match(r.mensaje, /Luhn no documentado para esta red \(no pasa\)/);
+});
+
+test("red retirada: Solo se reconoce y se marca como retirada", () => {
+  const r = validarTarjeta(relleno("6334", 16));
+  assert.equal(r.valido, true);
+  assert.equal(r.marca?.activa, false);
+  assert.match(r.mensaje, /red retirada/);
+});
+
+test("catálogo: ids únicos, longitudes 12-19 y rangos bien formados", () => {
+  const ids = MARCAS.map((m) => m.id);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const m of MARCAS) {
+    for (const l of m.longitudes) assert.ok(l >= 12 && l <= 19, `${m.id}: longitud ${l}`);
+    for (const p of m.prefijos) {
+      if (typeof p === "string") assert.match(p, /^\d+$/, `${m.id}: prefijo ${p}`);
+      else assert.ok(p[0] <= p[1] && String(p[0]).length === String(p[1]).length, `${m.id}: rango ${p}`);
+    }
+  }
+});
