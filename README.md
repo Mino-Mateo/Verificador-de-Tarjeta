@@ -4,6 +4,49 @@ Validación algorítmica de números de tarjeta de pago: dígito verificador (Lu
 
 Demo en vivo (con las 8 redes internacionales): https://mino-mateo.github.io/#tools
 
+## Contenido
+
+- [Anatomía de un número de tarjeta](#anatomía-de-un-número-de-tarjeta)
+- [Qué hace y qué no hace](#qué-hace-y-qué-no-hace)
+- [Cómo funciona](#cómo-funciona): limpieza, Luhn, marca por prefijo y resultado
+- [API](#api), [Números de prueba](#números-de-prueba), [Cómo correrlo](#cómo-correrlo)
+
+## Anatomía de un número de tarjeta
+
+Un número de tarjeta (PAN) sigue la norma **ISO/IEC 7812** y tiene entre 12 y 19 dígitos en tres partes:
+
+| Color | Parte | Qué es |
+|---|---|---|
+| Celeste | **MII** (primer dígito) | Industria del emisor: `4` y `5` banca, `3` viajes y entretenimiento, `6` comercio y banca |
+| Rosa | **IIN / BIN** (primeros 6 u 8 dígitos, incluye el MII) | Identifica la red y el banco emisor. Desde la revisión de 2017 de la norma el IIN pasa a 8 dígitos |
+| Gris | **Número de cuenta** | Lo asigna el banco; con IIN de 8 dígitos tiene como máximo 10 |
+| Verde | **Dígito verificador** | Se calcula con el algoritmo de Luhn; no se asigna |
+
+<p align="center"><img src="docs/luhn-visa.svg" alt="Tarjeta de prueba Visa 4242 4242 4242 4242 partida en MII, IIN, cuenta y verificador, con el cálculo de Luhn dígito por dígito" width="900"></p>
+
+<details>
+<summary><strong>Tabla completa del MII (primer dígito)</strong></summary>
+
+| Dígito | Industria |
+|---|---|
+| 0 | ISO/TC 68 y otras asignaciones |
+| 1 | Aerolíneas |
+| 2 | Aerolíneas, finanzas y asignaciones futuras |
+| 3 | Viajes y entretenimiento |
+| 4 | Banca y finanzas |
+| 5 | Banca y finanzas |
+| 6 | Comercio y banca |
+| 7 | Petroleras y asignaciones futuras |
+| 8 | Salud, telecomunicaciones y asignaciones futuras |
+| 9 | Asignación de los organismos nacionales de normalización |
+
+Fuente: [ISO/IEC 7812, Wikipedia](https://en.wikipedia.org/wiki/ISO/IEC_7812).
+
+</details>
+
+> [!NOTE]
+> Por eso UATP (tarjetas de aerolíneas) empieza por `1`, American Express y Diners por `3`, Visa por `4` y Mastercard por `5` o `2`.
+
 ## Qué hace y qué no hace
 
 Hace:
@@ -46,6 +89,10 @@ Ejemplo con `4242 4242 4242 4242`:
 | Valor | 8 | 2 | 8 | 2 | 8 | 2 | 8 | 2 | 8 | 2 | 8 | 2 | 8 | 2 | 8 | 2 |
 
 Suma = 80, y 80 % 10 = 0: pasa Luhn.
+
+Con un número de largo **impar** (Amex tiene 15) el duplicado empieza en el segundo dígito, porque siempre se cuenta desde la derecha:
+
+<p align="center"><img src="docs/luhn-amex.svg" alt="Tarjeta de prueba American Express 378282246310005 con el cálculo de Luhn: se duplican los dígitos en posición par desde la derecha" width="900"></p>
 
 El dígito verificador esperado para un cuerpo dado se obtiene agregando un 0 al final y calculando `(10 - suma % 10) % 10`. Luhn detecta cualquier error en un solo dígito y casi todas las transposiciones de dos dígitos adyacentes. Es el mismo principio que usa la cédula ecuatoriana (ver [Verificador de Cédula](https://github.com/Mino-Mateo/Verificador-de-C-dula)).
 
@@ -123,6 +170,26 @@ Ecuador no tiene una red nacional propia: las tarjetas locales se emiten sobre V
 
 Fuentes, revisadas el 2026-09-29: [Payment card number, Wikipedia](https://en.wikipedia.org/wiki/Payment_card_number) para la tabla IIN y [credit-card-type de Braintree](https://github.com/braintree/credit-card-type) (MIT) para Elo, Hipercard, Hiper y Naranja. Los rangos cambian con el tiempo; la serie 2 de Mastercard, por ejemplo, está activa desde 2017.
 
+### Flujo completo
+
+```mermaid
+flowchart LR
+    A[Entrada] --> B[Quitar espacios y guiones]
+    B --> C{¿Solo dígitos,<br/>12 a 19?}
+    C -- no --> X[Formato o longitud inválida]
+    C -- sí --> D[Marcas que coinciden<br/>por prefijo, la más larga primero]
+    D --> E{¿La marca exige Luhn?}
+    E -- sí, y falla --> Y[Dígito verificador incorrecto]
+    E -- no documentado --> F[Se informa si pasa o no]
+    E -- sí, y pasa --> G{¿Longitud válida<br/>para la marca?}
+    F --> G
+    G -- no --> Z[Longitud no válida para la marca]
+    G -- sí --> V[Válido: marca, país, entidad<br/>y cobranding]
+```
+
+> [!WARNING]
+> Luhn solo detecta errores de tipeo. Cualquiera puede generar números que lo cumplan: por eso un comercio nunca debe tratar "pasa Luhn" como "tarjeta real". La autorización del banco es lo único que confirma una tarjeta.
+
 ### 4. Resultado
 
 | Caso | Mensaje |
@@ -187,6 +254,7 @@ npm run demo      # compila y sirve index.html en http://localhost:8000
 
 ```
 src/tarjeta.ts          validador: Luhn y catálogo de redes (país, entidad, prefijos, longitudes)
+docs/generar-diagramas.py  dibuja los SVG de este README y recalcula Luhn
 test/tarjeta.test.ts    tests con números de prueba y casos límite
 index.html              demo mínima que usa dist/tarjeta.js
 ```
